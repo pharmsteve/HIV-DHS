@@ -1,7 +1,7 @@
-#R Code for Paper: "HIV infection risk among women in South Africa: exploring the interplay between financial autonomy, sexual autonomy and intimate partner violence"
-
 library(haven) #To read Stata dataset into R
 library(descr)
+
+# SECTION 1: LOADING AND CLEANING DATASET
 
 wom<- read_dta("C://Dataset//ZAIR71FL.DTA") #Import women's dataset
 hiv<- read_dta("C://Dataset//ZAAR71FL.DTA") #Import HIV dataset
@@ -248,10 +248,7 @@ mer$sex2<- factor(mer$sex2,
 
 mer1<-subset(mer, mer$IPV!="NA")
 
-#ANALYSIS
-
-mean(mer1$age)
-sd(mer1$age)
+# SECTION 2: ANALYSIS
 
 #TABLE 1: Descriptive Stats
 library(expss) #This package enables the computation of frequencies using sampling weights
@@ -293,21 +290,6 @@ ggplot(tab, aes(fill=fin, y=frequency, x=sex)) +
   labs(x="Sexual autonomy", y="Proportion", col="Site")+
   scale_fill_brewer(palette = "Dark2")+
   theme_bw()
-
-# Chi-square test for trend: No violence across financial autonomy levels
-vio.vector <- c(176, 199, 171)
-total.vector<- c(225, 265, 239)
-prop.trend.test(vio.vector, total.vector)
-
-# Chi-square test for trend: No violence across sexual autonomy levels
-vio.vector <- c(211, 176, 159)
-total.vector<- c(273, 238, 218)
-prop.trend.test(vio.vector, total.vector)
-
-# Chi-square test for trend: sexual across sexual autonomy levels
-vio.vector <- c(5, 9, 9)
-total.vector<- c(225, 265, 239)
-prop.trend.test(vio.vector, total.vector)
 
 #TABLE 3, Section A: Bivariate associations of HIV with women's characteristics
 crosstab(mer1$hiv, mer1$edu1, prop.c = T, chisq = T)
@@ -379,7 +361,54 @@ freq(mer1$mar)
 lm1<-glm.cluster(hiv~sex2+fin2+IPV+edu2+age+ages+rsd+mar+wealth+partners, data=mer1, cluster = mer1$cluster, family=binomial)
 summary(lm1)
 exp(cbind(OR = coef(lm1), confint.default(lm1)))
+plot(lm1$glm_res)
 
-#Test for model fit
-par(mfrow = c(2, 2))
-plot(lm1$glm_res) #Looks good!
+
+# SECTION 3: LOGISTIC REGRESSION MODEL DIAGNOSTICS
+
+# Predict the probability (p) of HIV seropositivity
+mer1$prob <- predict(lm1$glm_res, type = "response")
+mer1$predicted.classes <- ifelse(prob > 0.5, "pos", "neg")
+head(mer1$predicted.classes)
+mer1$logit = log(mer1$prob/(1-mer1$prob))
+
+#1 The dependent variable is binary
+#This is satisfied, as the outcome (HIV serostatus) is binary
+
+#2 Linear relationship with continuous variables
+#Logistic regression assumes a linear relationship between the logit of the 
+#outcome and each continuous predictor variable (in this case, age).
+ggplot(mer1, aes(logit, age))+
+  geom_point(size = 0.5, alpha = 0.5) +
+  geom_smooth(method = "loess") + 
+  theme_bw()+
+  labs(x="Log Odds of HIV", y="Age in Years")
+
+#3 Independent observations
+#This assumption is satisfied, as each row of the dataset represents a unique woman.
+#While observations within DHS sampling clusters are likely to be correlated, this was 
+#taken into account in the analysis by using cluster analysis (glm.cluster).
+
+#4 No multicollinearity between independent variables.
+#For the categorical varaibles, multicollinearity can be detected with 
+#Spearman rank correlation coefficient (ordinal variables) and chi-square test (nominal variables).
+#The chi-squared tests in table 2 show no significant correlation between financial
+#autonomy, sexual autonomy, and intimate partner violence.
+
+#5 No influential outliers
+#Data points with an absolute standardized residuals above 3 represent possible
+#outliers and may deserve closer attention.
+plot(lm1$glm_res, which = 4)
+plot(lm1$glm_res, which = 5)
+
+#Remove outliers and re-run analysis
+mer2<- mer1[(mer1$ID!=172412), ]
+mer2<- mer2[(mer2$ID!=368601), ]
+mer2<- mer2[(mer2$ID!=605632), ]
+#Run regression
+lm1<-glm.cluster(hiv~sex2+fin2+IPV+edu2+age+ages+rsd+mar+wealth+partners, data=mer2, cluster = mer2$cluster, family=binomial)
+summary(lm1)
+exp(cbind(OR = coef(lm1), confint.default(lm1)))
+
+#Outlier does not influence the results significantly
+#The model appears to satisfy the assumptions of logistic regression
